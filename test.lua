@@ -1,4 +1,3 @@
-local setclipboard = setclipboard
 local global_container
 do
 	local finder_code, global_container_obj = (function()
@@ -280,7 +279,10 @@ local function getScriptSource(scriptInstance, timeout)
 	return true, output
 end
 
-local final_outputs = {}
+local outputFolder = Instance.new("Folder")
+outputFolder.Name = "Decompiled_" .. string.sub(tostring(math.random()), 3)
+outputFolder.Parent = game.ReplicatedStorage
+
 local paths_to_process = type(_G.path) == "string" and { _G.path } or _G.path
 
 local processInstance
@@ -321,21 +323,12 @@ for _, path_str in ipairs(paths_to_process) do
 		processInstance(target_instance, scripts_in_path)
 
 		if #scripts_in_path > 0 then
-			table.sort(scripts_in_path, function(a, b) return a.path < b.path end)
-			local output_parts = {}
 			for _, data in ipairs(scripts_in_path) do
-				local formatted_entry = string.format("-- Path: %s\n%s", data.path, data.code)
-				table.insert(output_parts, formatted_entry)
+				local value = Instance.new("StringValue")
+				value.Name = data.path
+				value.Value = data.code
+				value.Parent = outputFolder
 			end
-			table.insert(final_outputs, table.concat(output_parts, "\n\n"))
-		else
-			table.insert(final_outputs, "-- No processable scripts or modules found at: " .. path_str)
 		end
-	else
-		table.insert(final_outputs, "-- Could not find instance at path: " .. path_str)
 	end
-end
-
-if setclipboard and #final_outputs > 0 then
-	setclipboard(table.concat(final_outputs, "\n-----------\n"))
 end
