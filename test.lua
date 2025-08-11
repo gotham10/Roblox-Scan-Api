@@ -1,19 +1,13 @@
-local g_env = getfenv()
-local function find_first(instance, name)
-    local success, child = pcall(instance.FindFirstChild, instance, name)
-    if success then
-        return child
-    end
-    return nil
-end
-
-local global_container = {}
+local setclipboard = setclipboard
+local global_container
 do
-	local finder_code, global_container_obj
-	finder_code, global_container_obj = (function()
-		local globalenv = g_env
-		local globalcontainer = {}
-		globalenv.globalcontainer = globalcontainer
+	local finder_code, global_container_obj = (function()
+		local globalenv = getgenv and getgenv() or _G or shared
+		local globalcontainer = globalenv.globalcontainer
+		if not globalcontainer then
+			globalcontainer = {}
+			globalenv.globalcontainer = globalcontainer
+		end
 		local genvs = { _G, shared }
 		if getgenv then
 			table.insert(genvs, getgenv())
@@ -28,13 +22,16 @@ do
 		end
 		local function isEmpty(dict)
 			for _ in next, dict do
-				return false
+				return
 			end
 			return true
 		end
-		local depth, hardlimit, query, antioverflow, matchedall
-		local function recurseEnv(env)
-			if globalcontainer == env or (antioverflow and antioverflow[env]) then
+		local depth, printresults, hardlimit, query, antioverflow, matchedall
+		local function recurseEnv(env, envname)
+			if globalcontainer == env then
+				return
+			end
+			if antioverflow[env] then
 				return
 			end
 			antioverflow[env] = true
@@ -46,18 +43,20 @@ do
 				local Type = type(val)
 				if Type == "table" then
 					if depth < hardlimit then
-						recurseEnv(val)
+						recurseEnv(val, name)
 					end
 				elseif Type == "function" then
 					name = string.lower(tostring(name))
 					local matched
 					for methodname, pattern in next, query do
-						if pattern(name) then
+						if pattern(name, envname) then
 							globalcontainer[methodname] = val
 							if not matched then
 								matched = {}
 							end
 							table.insert(matched, methodname)
+							if printresults then
+							end
 						end
 					end
 					if matched then
@@ -73,7 +72,7 @@ do
 			end
 			depth = depth - 1
 		end
-		local function finder(Query, ForceSearch, CustomCallLimit)
+		local function finder(Query, ForceSearch, CustomCallLimit, PrintResults)
 			antioverflow = {}
 			query = {}
 			do
@@ -85,210 +84,250 @@ do
 						if not Find(pattern, "return") then
 							pattern = "return " .. pattern
 						end
-						local success, func = pcall(loadstring, pattern)
-						if success and func then
-							query[methodname] = func
-						end
+						query[methodname] = loadstring(pattern)
 					end
 				end
 			end
 			depth = 0
+			printresults = PrintResults
 			hardlimit = CustomCallLimit or calllimit
-			for _, env in ipairs(genvs) do
-				recurseEnv(env)
-			end
-			local fenv = getfenv()
-			for methodname in next, query do
-				if not globalcontainer[methodname] then
-					globalcontainer[methodname] = fenv[methodname]
+			recurseEnv(genvs)
+			do
+				local env = getfenv()
+				for methodname in next, Query do
+					if not globalcontainer[methodname] then
+						globalcontainer[methodname] = env[methodname]
+					end
 				end
 			end
-			hardlimit, depth, antioverflow, query = nil, nil, nil, nil
+			hardlimit = nil
+			depth = nil
+			printresults = nil
+			antioverflow = nil
+			query = nil
 		end
 		return finder, globalcontainer
 	end)()
 	global_container = global_container_obj
 	finder_code({
 		getscriptbytecode = 'string.find(...,"get",nil,true) and string.find(...,"bytecode",nil,true)',
-		hash = 'local a={...}return string.find(a[1],"hash")',
-		decompile = 'string.find(...,"decompile",nil,true) and not string.find(...,"compile",nil,true)',
-		setclipboard = 'string.find(...,"setclipboard",nil,true)'
-	}, true, 15)
+		hash = 'local a={...}local b=a[1]local function c(a,b)return string.find(a,b,nil,true)end;return c(b,"hash")and c(string.lower(tostring(a[2])),"crypt")'
+	}, true, 10)
 end
-
-local getscriptbytecode = global_container.getscriptbytecode
-local decompile = global_container.decompile
-local setclipboard = global_container.setclipboard
 local sha384
-
 if global_container.hash then
 	sha384 = function(data)
 		return global_container.hash(data, "sha384")
 	end
 end
-
 if not sha384 then
 	pcall(function()
 		local require_online = (function()
 			local RequireCache = {}
 			local function ARequire(ModuleScript)
 				local Cached = RequireCache[ModuleScript]
-				if Cached then return Cached end
+				if Cached then
+					return Cached
+				end
 				local Source = ModuleScript.Source
-				local success, LoadedSource = pcall(loadstring, Source)
-				if not success or not LoadedSource then return nil end
+				local LoadedSource = loadstring(Source)
 				local fenv = getfenv(LoadedSource)
 				fenv.script = ModuleScript
 				fenv.require = ARequire
-				local success, Output = pcall(LoadedSource)
-				if not success then return nil end
+				local Output = LoadedSource()
 				RequireCache[ModuleScript] = Output
 				return Output
 			end
 			local function ARequireController(AssetId)
-				local success, objects = pcall(game.GetObjects, game, "rbxassetid://" .. AssetId)
-				if not success or not objects or #objects == 0 then return nil end
-				return ARequire(objects[1])
+				local ModuleScript = game:GetObjects("rbxassetid://" .. AssetId)[1]
+				return ARequire(ModuleScript)
 			end
 			return ARequireController
 		end)()
 		if require_online then
-			local crypto = require_online(4544052033)
-			if crypto and crypto.sha384 then
-				sha384 = crypto.sha384
-			end
+			sha384 = require_online(4544052033).sha384
 		end
 	end)
 end
-
-if not g_env.scriptcache then
-	g_env.scriptcache = {}
+local decompile = decompile
+local getscriptbytecode = global_container.getscriptbytecode
+local genv = getgenv and getgenv() or _G or shared
+if not genv.scriptcache then
+	genv.scriptcache = {}
 end
-local ldeccache = g_env.scriptcache
-
+local ldeccache = genv.scriptcache
+local function GetInstanceFromPath(pathStr)
+	local current = game
+	for component in pathStr:gmatch("([^%.]+)") do
+		if not current then return nil end
+		current = current:FindFirstChild(component)
+		if not current then return nil end
+	end
+	return current
+end
+local serialize
+serialize = function(val, indent, seen)
+	indent = indent or ""
+	seen = seen or {}
+	local t = type(val)
+	if t == "string" then
+		return string.format("%q", val)
+	elseif t == "number" or t == "boolean" or t == "nil" then
+		return tostring(val)
+	elseif t == "table" then
+		if seen[val] then
+			return "\"{CYCLIC_TABLE}\""
+		end
+		seen[val] = true
+		local parts = {}
+		local isList = #val > 0 and next(val) ~= nil
+		if isList then
+			for i = 1, #val do
+				if val[i] == nil then
+					isList = false
+					break
+				end
+			end
+			if next(val, #val) then isList = false end
+		end
+		if isList then
+			for i = 1, #val do
+				table.insert(parts, indent .. "  " .. serialize(val[i], indent .. "  ", seen))
+			end
+		else
+			for k, v in pairs(val) do
+				local keyStr = (type(k) == "string" and k:match("^[_%a][_%w]*$")) and k or "[" .. serialize(k, "", seen) .. "]"
+				table.insert(parts, indent .. "  " .. keyStr .. " = " .. serialize(v, indent .. "  ", seen))
+			end
+		end
+		seen[val] = nil
+		if #parts == 0 then return "{}" end
+		return "{\n" .. table.concat(parts, ",\n") .. "\n" .. indent .. "}"
+	else
+		return string.format("\"<%s>\"", t)
+	end
+end
 local function construct_TimeoutHandler(timeout, func, timeout_return_value)
 	return function(...)
 		local args = { ... }
 		if not func then return false, "Function is nil" end
 		if timeout < 0 then return pcall(func, table.unpack(args)) end
 		local thread = coroutine.running()
-		if not thread then return pcall(func, table.unpack(args)) end
-		local isCancelled
-		local timeoutThread = task.delay(timeout, function()
+		local timeoutThread, isCancelled
+		timeoutThread = task.delay(timeout, function()
 			isCancelled = true
-			task.spawn(coroutine.resume, thread, nil, timeout_return_value)
+			coroutine.resume(thread, nil, timeout_return_value)
 		end)
-		local success, result
 		task.spawn(function()
-			local s, r = pcall(func, table.unpack(args))
+			local success, result = pcall(func, table.unpack(args))
 			if isCancelled then return end
 			task.cancel(timeoutThread)
-			if coroutine.status(thread) == "suspended" then
-				success, result = s, r
-				task.spawn(coroutine.resume, thread, success, result)
-			end
+			while coroutine.status(thread) ~= "suspended" do task.wait() end
+			coroutine.resume(thread, success, result)
 		end)
 		return coroutine.yield()
 	end
 end
-
-local function getScriptSource(scriptInstance)
+local function getScriptSource(scriptInstance, timeout)
 	if not (decompile and getscriptbytecode and sha384) then
-		return false, "--[[ Error: Required functions are missing. ]]--"
+		return false, "Required functions are missing."
 	end
+	local decompileTimeout = timeout or 10
 	local getbytecode_h = construct_TimeoutHandler(3, getscriptbytecode)
-	local decompiler_h = construct_TimeoutHandler(10, decompile, "-- Decompiler timed out after 10 seconds.")
+	local decompiler_h = construct_TimeoutHandler(decompileTimeout, decompile, "Decompiler timed out.")
 	local success, bytecode = getbytecode_h(scriptInstance)
 	local hashed_bytecode
-	if success and bytecode and #bytecode > 0 then
+	local cached_source
+	if success and bytecode and bytecode ~= "" then
 		hashed_bytecode = sha384(bytecode)
-		if ldeccache[hashed_bytecode] then
-			return true, ldeccache[hashed_bytecode]
-		end
+		cached_source = ldeccache[hashed_bytecode]
 	elseif success then
-		return true, "-- The script is empty."
+		return true, ""
 	else
-		return false, "-- Failed to get bytecode."
+		return false, "Failed to get bytecode."
+	end
+	if cached_source then
+		return true, cached_source
 	end
 	local decompile_success, decompiled_source = decompiler_h(scriptInstance)
 	local output
 	if decompile_success and decompiled_source then
 		output = string.gsub(decompiled_source, "\0", "\\0")
 	else
-		output = "--[[ Failed to decompile. Reason: " .. tostring(decompiled_source) .. " ]]"
+		output = "--[[ Decompilation Failed: " .. tostring(decompiled_source) .. " ]]"
 	end
-	if string.sub(output, 1, 20) == "-- Decompiled with " then
-		local first_newline = string.find(output, "\n")
+	if output:match("^%s*%-%- Decompiled with") then
+		local first_newline = output:find("\n")
 		if first_newline then
-			output = string.sub(output, first_newline + 1)
+			output = output:sub(first_newline + 1)
 		else
 			output = ""
 		end
-		output = string.gsub(output, "^%s*\n", "")
+		output = output:gsub("^%s*\n", "")
 	end
 	if hashed_bytecode then
 		ldeccache[hashed_bytecode] = output
 	end
 	return true, output
 end
-
-local function findInstanceByPath(path)
-	local current = game
-	for part in string.gmatch(path, "[^%.]+") do
-		current = find_first(current, part)
-		if not current then
-			return nil
+local final_outputs = {}
+local paths_to_process = type(path) == "string" and { path } or path
+local collectScripts
+collectScripts = function(instance, collected_data)
+	if not instance then return end
+	if instance:IsA("LuaSourceContainer") then
+		local current_path = instance:GetFullName()
+		local output
+		if instance:IsA("ModuleScript") then
+			local ok, required_module = pcall(require, instance)
+			if ok and type(required_module) == "table" then
+				output = "return " .. serialize(required_module)
+			else
+				local source_success, source_code = getScriptSource(instance)
+				output = source_success and source_code or "--[[ DECOMPILATION FAILED: " .. tostring(source_code) .. " ]]"
+			end
+		else
+			local source_success, source_code = getScriptSource(instance)
+			output = source_success and source_code or "--[[ DECOMPILATION FAILED: " .. tostring(source_code) .. " ]]"
+		end
+		table.insert(collected_data, { path = current_path, code = output })
+	end
+	local success_children, children = pcall(function() return instance:GetChildren() end)
+	if success_children and children then
+		for _, child in ipairs(children) do
+			collectScripts(child, collected_data)
 		end
 	end
-	return current
 end
-
-local function split(s, delimiter)
-    local result = {};
-    local from = 1;
-    local delim_from, delim_to = string.find(s, delimiter, from);
-    while delim_from do
-        table.insert(result, string.sub(s, from, delim_from - 1));
-        from = delim_to + 1;
-        delim_from, delim_to = string.find(s, delimiter, from);
-    end
-    table.insert(result, string.sub(s, from));
-    return result;
-end
-
-local path_string
-local g_table
-local main_env = getgenv and getgenv() or _G
-if type(main_env.g) == 'table' then
-    g_table = main_env.g
-elseif type(g_env.g) == 'table' then
-    g_table = g_env.g
-end
-
-if type(g_table) == "table" and type(g_table.gev) == "string" then
-	path_string = g_table.gev
-end
-
-if not path_string or not setclipboard then return end
-
-local paths_untrimmed = split(path_string, string.rep("-", 20))
-local paths = {}
-for _, path in ipairs(paths_untrimmed) do
-    local trimmed_path = string.match(path, "^%s*(.-)%s*$")
-    if trimmed_path and #trimmed_path > 0 then
-        table.insert(paths, trimmed_path)
-    end
-end
-
-local results = {}
-for _, path in ipairs(paths) do
-	local target_instance = findInstanceByPath(path)
-	if target_instance and pcall(function() return target_instance:IsA("LuaSourceContainer") end) then
-		local success, source_code = getScriptSource(target_instance)
-		table.insert(results, source_code)
+for _, path_str in ipairs(paths_to_process) do
+	local target_instance = GetInstanceFromPath(path_str)
+	if target_instance then
+		local scripts_in_path = {}
+		if target_instance:IsA("LuaSourceContainer") then
+			collectScripts(target_instance, scripts_in_path)
+		else
+			local success_children, children = pcall(function() return target_instance:GetChildren() end)
+			if success_children and children then
+				for _, child in ipairs(children) do
+					collectScripts(child, scripts_in_path)
+				end
+			end
+		end
+		if #scripts_in_path > 0 then
+			table.sort(scripts_in_path, function(a, b) return a.path < b.path end)
+			local output_parts = {}
+			for _, data in ipairs(scripts_in_path) do
+				local formatted_entry = string.format("-- Path: %s\n%s", data.path, data.code)
+				table.insert(output_parts, formatted_entry)
+			end
+			table.insert(final_outputs, table.concat(output_parts, "\n\n"))
+		else
+			table.insert(final_outputs, "-- No scripts found at: " .. path_str)
+		end
 	else
-		table.insert(results, "--[[ Could not find a valid script at path: " .. path .. " ]]--")
+		table.insert(final_outputs, "-- Could not find instance at path: " .. path_str)
 	end
 end
-
-setclipboard(table.concat(results, "\n" .. string.rep("-", 20) .. "\n"))
+if setclipboard and #final_outputs > 0 then
+	setclipboard(table.concat(final_outputs, "\n-----------\n"))
+end
