@@ -257,9 +257,16 @@ local function split(s, delimiter)
 end
 
 local path_string
-local scope = getgenv and getgenv() or _G
-if type(scope.g) == "table" and type(scope.g.gev) == "string" then
-	path_string = scope.g.gev
+local g_table
+local main_env = getgenv and getgenv() or _G
+if type(main_env.g) == 'table' then
+    g_table = main_env.g
+elseif type(g_env.g) == 'table' then
+    g_table = g_env.g
+end
+
+if type(g_table) == "table" and type(g_table.gev) == "string" then
+	path_string = g_table.gev
 end
 
 if not path_string or not setclipboard then return end
