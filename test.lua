@@ -279,9 +279,14 @@ local function getScriptSource(scriptInstance, timeout)
 	return true, output
 end
 
-local outputFolder = Instance.new("Folder")
-outputFolder.Name = "Decompiled_" .. string.sub(tostring(math.random()), 3)
-outputFolder.Parent = game.ReplicatedStorage
+local outputFolder = game.ReplicatedStorage:FindFirstChild("DecompiledScripts")
+if outputFolder then
+	outputFolder:ClearAllChildren()
+else
+	outputFolder = Instance.new("Folder")
+	outputFolder.Name = "DecompiledScripts"
+	outputFolder.Parent = game.ReplicatedStorage
+end
 
 local paths_to_process = type(_G.path) == "string" and { _G.path } or _G.path
 
