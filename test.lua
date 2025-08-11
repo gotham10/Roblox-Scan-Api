@@ -243,27 +243,34 @@ local function findInstanceByPath(path)
 	return current
 end
 
-local function splitString(input, separator)
-	local result = {}
-	local pattern = "([^" .. separator .. "]+)"
-	for part in string.gmatch(input, pattern) do
-		table.insert(result, part)
-	end
-	return result
+local function split(s, delimiter)
+    local result = {};
+    local from = 1;
+    local delim_from, delim_to = string.find(s, delimiter, from);
+    while delim_from do
+        table.insert(result, string.sub(s, from, delim_from - 1));
+        from = delim_to + 1;
+        delim_from, delim_to = string.find(s, delimiter, from);
+    end
+    table.insert(result, string.sub(s, from));
+    return result;
 end
 
 local path_string
-if type(g_env.g) == "table" and type(g_env.g.gev) == "string" then
-	path_string = g_env.g.gev
+local scope = getgenv and getgenv() or _G
+if type(scope.g) == "table" and type(scope.g.gev) == "string" then
+	path_string = scope.g.gev
 end
 
 if not path_string or not setclipboard then return end
 
+local paths_untrimmed = split(path_string, string.rep("-", 20))
 local paths = {}
-for s in string.gmatch(path_string, "([^-]+)") do
-	if string.gsub(s, "%s", "") ~= "" then
-		table.insert(paths, string.match(s, "^%s*(.-)%s*$"))
-	end
+for _, path in ipairs(paths_untrimmed) do
+    local trimmed_path = string.match(path, "^%s*(.-)%s*$")
+    if trimmed_path and #trimmed_path > 0 then
+        table.insert(paths, trimmed_path)
+    end
 end
 
 local results = {}
@@ -277,4 +284,4 @@ for _, path in ipairs(paths) do
 	end
 end
 
-setclipboard(table.concat(results, "\n--------------------\n"))
+setclipboard(table.concat(results, "\n" .. string.rep("-", 20) .. "\n"))
